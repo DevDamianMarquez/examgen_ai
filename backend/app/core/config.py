@@ -19,10 +19,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    # OpenAI
-    OPENAI_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4o"
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    # GROQ
+    GROQ_API_KEY: str
+    LLM_MODEL: str
+    LLM_BASE_URL: str
 
     @property
     def cors_origins_list(self) -> list[str]:

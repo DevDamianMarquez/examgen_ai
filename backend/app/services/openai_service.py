@@ -5,10 +5,14 @@ Maneja embeddings y generación de exámenes con prompts optimizados.
 import json
 import numpy as np
 from typing import List, Optional
-from openai import OpenAI
 from app.core.config import settings
+from openai import OpenAI
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+client = OpenAI(
+    api_key=settings.GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1",
+)
+
 
 
 def get_embedding(text: str) -> List[float]:
@@ -177,7 +181,7 @@ def generate_exam_with_ai(
     is_variant: bool = False,
 ) -> dict:
     """
-    Llama a la API de OpenAI y retorna el examen parseado como dict.
+    Llama a la API  y retorna el examen parseado como dict.
     """
     prompt = build_exam_prompt(
         syllabus_content=syllabus_content,
@@ -191,7 +195,7 @@ def generate_exam_with_ai(
     )
 
     response = client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
+        model=settings.LLM_MODEL,
         messages=[
             {
                 "role": "system",

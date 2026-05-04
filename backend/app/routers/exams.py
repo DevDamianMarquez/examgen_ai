@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemas.exam import ExamGenerateRequest, ExamOut, ExamListOut
 from app.services import exam_service
 from app.services.pdf_service import generate_exam_pdf
+from app.dependencies.pro_user import require_pro_user
 
 router = APIRouter(prefix="/api/exams", tags=["exams"])
 
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/api/exams", tags=["exams"])
 def generate_exam(
     request: ExamGenerateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_pro_user),
 ):
     """Genera un examen completo usando IA a partir de un temario."""
     return exam_service.generate_and_save_exam(db, request, current_user.id)

@@ -3,11 +3,14 @@ Utilidades de seguridad: hashing de contraseñas y JWT.
 """
 from datetime import datetime, timedelta
 from typing import Optional
+import hashlib
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.database import get_db
 
@@ -15,12 +18,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    """
+    bcrypt tiene un límite de 72 bytes.
+    Pre-hasheamos con SHA-256 para evitar errores y mejorar compatibilidad.
+    """
+    safe_password = hashlib.sha256(password.encode()).hexdigest()
+    return pwd_context.hash(safe_password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    safe_password = hashlib.sha256(plain_password.encode()).hexdigest()
+    return pwd_context.verify(safe_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -52,7 +61,9 @@ def get_current_user(
 
     # Import aquí para evitar circular imports
     from app.models.user import User
+
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
         raise credentials_exception
+
     return user

@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.routers import auth, subjects, exams
+from app.routers import lemonsqueezy_webhook
 
 # Importar todos los modelos para que SQLAlchemy los registre
 import app.models  # noqa: F401
@@ -45,7 +46,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(subjects.router)
 app.include_router(exams.router)
-
+app.include_router(lemonsqueezy_webhook.router, prefix="/api")
 
 @app.get("/health")
 def health_check():

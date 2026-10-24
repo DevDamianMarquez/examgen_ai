@@ -1,169 +1,87 @@
-# ExamGen AI 🎓
+# ExamGen AI
 
-**Generador inteligente de exámenes para profesores y academias.**
+A FastAPI backend that turns a teacher's syllabus into a complete exam with an LLM: questions, answer key and grading rubric, exported as a student PDF and a teacher PDF.
 
-La IA genera exámenes completos con preguntas, respuestas correctas y rúbrica de corrección a partir de cualquier temario.
+Personal project by [Damian Marquez](https://damian-backend-portfolio.vercel.app). Case study: [damian-backend-portfolio.vercel.app/projects/examgen-ai](https://damian-backend-portfolio.vercel.app/projects/examgen-ai)
 
 ---
+
+## What it does
+
+1. A teacher registers, creates a subject (e.g. "Physics", university level) and pastes a syllabus.
+2. They request an exam: difficulty, number of questions (3–50) and question types (multiple choice, open-ended, true/false).
+3. The API asks the LLM for the whole exam as JSON, stores it, and saves every question as its own row.
+4. The exam can be downloaded as a PDF, with or without answers and rubric.
+5. An alternative version of an exam can be generated to discourage copying.
 
 ## Stack
 
-| Capa | Tecnología |
-|------|-----------|
-| Backend | Python · FastAPI · SQLAlchemy · PostgreSQL |
-| IA | OpenAI GPT-4o · Embeddings (text-embedding-3-small) |
-| Frontend | React · Vite · TailwindCSS · Axios · Zustand |
-| Infra | Docker · Docker Compose · Nginx |
+| Layer | Technology |
+| --- | --- |
+| API | Python 3.11, FastAPI, Pydantic, pydantic-settings |
+| Auth | JWT (python-jose), bcrypt (passlib) |
+| Database | PostgreSQL, SQLAlchemy 2.0 |
+| LLM | OpenAI Python SDK pointed at an OpenAI-compatible provider (Groq by default), JSON mode |
+| PDF | ReportLab |
+| Infrastructure | Docker, Docker Compose, Nginx config |
+| Client | React, Vite, Tailwind CSS, Zustand, Axios |
 
----
-
-## Estructura del proyecto
+## Architecture
 
 ```
-examgen-ai/
-├── backend/
-│   ├── app/
-│   │   ├── core/
-│   │   │   ├── config.py          # Settings con pydantic-settings
-│   │   │   ├── database.py        # Engine y sesión SQLAlchemy
-│   │   │   └── security.py        # JWT + password hashing
-│   │   ├── models/
-│   │   │   ├── user.py
-│   │   │   ├── subject.py
-│   │   │   ├── syllabus.py        # Temario + embedding JSON
-│   │   │   └── exam.py            # Exam + Question con embeddings
-│   │   ├── schemas/
-│   │   │   ├── user.py
-│   │   │   ├── subject.py
-│   │   │   └── exam.py
-│   │   ├── routers/
-│   │   │   ├── auth.py
-│   │   │   ├── subjects.py        # Materias + temarios
-│   │   │   └── exams.py           # Generación + PDF download
-│   │   ├── services/
-│   │   │   ├── openai_service.py  # Prompts + embeddings + generación
-│   │   │   ├── exam_service.py    # Orquestación + anti-repetición
-│   │   │   └── pdf_service.py     # ReportLab PDF profesional
-│   │   └── main.py
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .env.example
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── LoginPage.jsx
-│   │   │   ├── RegisterPage.jsx
-│   │   │   ├── DashboardPage.jsx
-│   │   │   ├── SubjectsPage.jsx
-│   │   │   ├── SubjectDetailPage.jsx
-│   │   │   ├── SyllabusPage.jsx
-│   │   │   ├── GenerateExamPage.jsx
-│   │   │   └── ExamViewPage.jsx
-│   │   ├── components/layout/Layout.jsx
-│   │   ├── services/api.js        # Axios con interceptores JWT
-│   │   └── store/authStore.js     # Zustand auth state
-│   ├── Dockerfile
-│   └── nginx.conf
-└── docker-compose.yml
+backend/app/
+├── core/          settings (env vars), database session, security (hashing + JWT)
+├── models/        SQLAlchemy models: users, subjects, syllabuses, exams, questions, subscriptions
+├── schemas/       Pydantic request/response models
+├── routers/       HTTP layer: auth, subjects, exams, subscription webhook
+├── dependencies/  reusable FastAPI dependencies (active subscription check)
+├── services/      exam orchestration, LLM calls, PDF rendering
+└── main.py        app factory, CORS, routers, /health
 ```
 
----
+Routers stay thin; the generation flow lives in `services/exam_service.py`.
 
-## Instalación y uso
+### How an exam is generated
 
-### Opción 1 — Docker Compose (recomendado)
+1. **Validate**: Pydantic checks the request, the JWT identifies the user, and a dependency confirms an active subscription.
+2. **Authorize**: the syllabus must belong to one of the user's subjects, otherwise 403.
+3. **Context**: questions from recent exams on the same syllabus are added to the prompt as topics to avoid.
+4. **Generate**: one chat completion in JSON mode returns questions, answers, rubric and answer key.
+5. **Persist**: the full JSON is stored on the exam and each question is saved as a row, in one transaction.
+6. **Render**: PDFs are produced on request from the stored JSON.
 
-```bash
-# 1. Clonar y entrar al proyecto
-git clone <repo> examgen-ai && cd examgen-ai
+### Design decisions
 
-# 2. Configurar variables de entorno del backend
-cp backend/.env.example backend/.env
-# Editar backend/.env y agregar tu OPENAI_API_KEY
+- **Authorization inside the query.** Subjects, syllabuses and exams are always filtered by the current user's id, so requesting someone else's resource returns 404.
+- **Password hashing.** bcrypt only reads the first 72 bytes, so passwords are pre-hashed with SHA-256 before bcrypt.
+- **Raw JSON plus normalized rows.** The raw LLM response keeps the rubric and answer key for rendering; question rows make questions queryable.
+- **Provider-agnostic LLM client.** The base URL and model come from configuration, so switching providers needs no code changes.
+- **PDFs on demand.** Nothing is stored on disk; template fixes apply to every past exam.
 
-# 3. Levantar todo
-docker-compose up --build
+## API
 
-# Frontend:  http://localhost:5173
-# Backend:   http://localhost:8000
-# API Docs:  http://localhost:8000/docs
-```
+Interactive docs are served at `/docs` when the API is running.
 
-### Opción 2 — Desarrollo local
+| Method | Endpoint | Description | Auth |
+| --- | --- | --- | --- |
+| POST | `/api/auth/register` | Create account, returns JWT | Public |
+| POST | `/api/auth/login` | Log in, returns JWT | Public |
+| GET | `/api/auth/me` | Current user | JWT |
+| POST | `/api/subjects/` | Create subject | JWT |
+| GET | `/api/subjects/` | List my subjects | JWT |
+| GET | `/api/subjects/{id}` | Get subject | JWT |
+| DELETE | `/api/subjects/{id}` | Delete subject (cascades) | JWT |
+| POST | `/api/subjects/{id}/syllabuses` | Add syllabus | JWT |
+| GET | `/api/subjects/{id}/syllabuses` | List syllabuses | JWT |
+| GET | `/api/subjects/{id}/syllabuses/{syllabus_id}` | Get syllabus | JWT |
+| POST | `/api/exams/generate` | Generate exam with the LLM | JWT + subscription |
+| GET | `/api/exams/` | List my exams (optional `subject_id`) | JWT |
+| GET | `/api/exams/{id}` | Exam with questions | JWT |
+| GET | `/api/exams/{id}/pdf` | PDF; `?include_answers=true` for the teacher version | JWT |
+| DELETE | `/api/exams/{id}` | Delete exam | JWT |
+| GET | `/health` | Health check | Public |
 
-**Backend**
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-cp .env.example .env
-# Editar .env con tu OPENAI_API_KEY y DATABASE_URL
-
-# Asegurate de tener PostgreSQL corriendo, luego:
-uvicorn app.main:app --reload --port 8000
-```
-
-**Frontend**
-```bash
-cd frontend
-npm install
-npm run dev
-# Disponible en http://localhost:5173
-```
-
----
-
-## Variables de entorno (backend/.env)
-
-```env
-# Base de datos PostgreSQL
-DATABASE_URL=postgresql://examgen:examgen_pass@localhost:5432/examgen_db
-
-# JWT — cambiar en producción
-SECRET_KEY=genera-una-clave-aleatoria-de-minimo-32-caracteres
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-
-# OpenAI — OBLIGATORIO
-OPENAI_API_KEY=sk-tu-clave-aqui
-OPENAI_MODEL=gpt-4o
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-
-# CORS
-CORS_ORIGINS=http://localhost:5173
-```
-
----
-
-## API Reference
-
-### Auth
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Registro de usuario |
-| POST | `/api/auth/login` | Login → retorna JWT |
-
-### Materias
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/subjects/` | Listar materias del usuario |
-| POST | `/api/subjects/` | Crear materia |
-| DELETE | `/api/subjects/{id}` | Eliminar materia |
-| POST | `/api/subjects/{id}/syllabuses` | Cargar temario + generar embedding |
-| GET | `/api/subjects/{id}/syllabuses` | Listar temarios |
-
-### Exámenes
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/exams/generate` | **Generar examen con IA** |
-| GET | `/api/exams/` | Listar exámenes |
-| GET | `/api/exams/{id}` | Ver examen completo |
-| GET | `/api/exams/{id}/pdf` | Descargar PDF |
-| GET | `/api/exams/{id}/pdf?include_answers=true` | PDF con respuestas y rúbrica |
-
-### Payload para generar examen
+Example request body for `POST /api/exams/generate`:
 
 ```json
 {
@@ -171,62 +89,64 @@ CORS_ORIGINS=http://localhost:5173
   "difficulty": "medio",
   "total_questions": 10,
   "question_types": ["multiple_choice", "desarrollo", "verdadero_falso"],
-  "title": "Examen Unidad 2 (opcional)",
+  "title": "Unit 2 exam (optional)",
   "generate_variant": false
 }
 ```
 
----
+`difficulty` accepts `facil`, `medio` or `dificil`. Prompts and generated exams are in Spanish.
 
-## Funcionalidad IA
+## Running locally
 
-### Generación de exámenes
-- Prompt optimizado con contexto pedagógico completo
-- Genera JSON estructurado con: preguntas, respuestas, explicaciones, rúbrica, escala de calificación
-- Soporta 3 tipos: opción múltiple, desarrollo, verdadero/falso
-- 3 niveles de dificultad con instrucciones diferenciadas para la IA
-- Versiones alternativas anti-copia con reformulación automática
+### 1. Configure
 
-### Sistema anti-repetición con embeddings
-1. Al cargar un temario → se genera su embedding con `text-embedding-3-small`
-2. Al generar cada pregunta → se genera su embedding individual
-3. Al generar un nuevo examen del mismo temario:
-   - Se incluye en el prompt un resumen de preguntas anteriores
-   - El sistema usa similitud coseno (threshold 0.88) para detectar duplicados semánticos
-   - La IA recibe instrucción explícita de evitar esos temas/enfoques
-
-### PDF profesional
-- Generado con ReportLab
-- Versión alumno: solo preguntas, espacio para respuestas
-- Versión docente: incluye respuestas correctas + rúbrica completa + escala de calificación
-- Campos para nombre, curso, fecha y calificación
-
----
-
-## Flujo de uso
-
-```
-1. Registrarse / Iniciar sesión
-2. Crear materia (ej: "Física", nivel "Universitario")
-3. Cargar temario (texto libre — unidades, conceptos, temas)
-   → El sistema genera embeddings automáticamente
-4. Generar examen:
-   → Seleccionar dificultad, cantidad, tipos de preguntas
-   → Opcionalmente: generar versión alternativa anti-copia
-5. Ver examen generado con todas las preguntas
-6. Descargar PDF:
-   → Sin respuestas (para el alumno)
-   → Con respuestas y rúbrica (para el docente)
+```bash
+cp backend/.env.example backend/.env
+# set GROQ_API_KEY (or another OpenAI-compatible key), LLM_MODEL and SECRET_KEY
 ```
 
----
+### 2. Database and API with Docker Compose
 
-## Producción
+```bash
+docker compose up --build db backend
+# API:  http://localhost:8000
+# Docs: http://localhost:8000/docs
+```
 
-Para un deploy en producción, asegurarse de:
+Tables are created on startup.
 
-1. Cambiar `SECRET_KEY` por un valor aleatorio seguro
-2. Usar Alembic para migraciones en lugar de `create_all`
-3. Configurar SSL/HTTPS en Nginx
-4. Usar variables de entorno del servidor en lugar de `.env`
-5. Escalar con múltiples workers: `uvicorn app.main:app --workers 4`
+### 3. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+# http://localhost:5173 (Vite proxies /api to http://localhost:8000)
+```
+
+### Without Docker
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+Requires a running PostgreSQL and `DATABASE_URL` in `backend/.env`.
+
+## Current status and known limitations
+
+This is a personal project that runs end to end in local development. It is not deployed as a product. Known gaps, in the order I would address them:
+
+- **Semantic duplicate detection is not wired in yet.** Embedding storage and a cosine-similarity check (threshold 0.88) exist in `openai_service.py`, but generation currently avoids repeats only through prompt context. Embeddings also require a provider with an embeddings endpoint; with Groq they are skipped.
+- **LLM output is parsed but not schema-validated** before saving. Next step: validate against a Pydantic model and retry on malformed output.
+- **Schema changes use `create_all`.** Alembic is in the requirements but migrations are not set up yet.
+- **No automated tests yet.** Planned: pytest for auth, ownership checks and the generation service with the LLM mocked.
+- **The subscription webhook does not verify signatures.**
+- **The `frontend` service in docker-compose** proxies to `localhost` inside its container, so run the frontend locally as shown above.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

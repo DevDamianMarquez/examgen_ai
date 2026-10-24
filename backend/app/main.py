@@ -16,9 +16,6 @@ from app.routers import lemonsqueezy_webhook
 # Importar todos los modelos para que SQLAlchemy los registre
 import app.models  # noqa: F401
 
-import os
-print(repr(os.getenv("DATABASE_URL")))
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Crea tablas al arrancar (útil en desarrollo; en producción usar Alembic)."""

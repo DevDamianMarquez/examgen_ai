@@ -19,10 +19,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    # GROQ
+    # LLM provider (any OpenAI-compatible API; defaults target Groq)
     GROQ_API_KEY: str
     LLM_MODEL: str
-    LLM_BASE_URL: str
+    LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
+    # Embeddings are optional: the provider must expose an embeddings endpoint.
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     @property
     def cors_origins_list(self) -> list[str]:

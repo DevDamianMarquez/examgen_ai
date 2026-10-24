@@ -10,9 +10,8 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key=settings.GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1",
+    base_url=settings.LLM_BASE_URL,
 )
-
 
 
 def get_embedding(text: str) -> List[float]:
